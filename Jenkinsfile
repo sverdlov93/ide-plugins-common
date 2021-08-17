@@ -13,7 +13,7 @@ pipeline {
 		stage ("Clone") {
 			steps {
 				git branch: "master",
-				url: "https://github.com/sverdlov93/ide-plugins-common",
+				url: "https://github.com/sverdlov93/ide-plugins-common"
 				// credentialsId: 'git_cred_id' (If cloning the code requires credentials, set credentials to artifactory server assined in Jenkins > Configure System > credentials > "username with password" > ID: "git-cred-id" )
 			}
 		}
