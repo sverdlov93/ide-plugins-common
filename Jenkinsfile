@@ -25,7 +25,7 @@ pipeline {
 				rtServer (
 					id: "ci-setup-cmd",
 					url: "https://michaelsv.jfrog.io/artifactory/",
-					credentialsId: 'rt-cred-id', // (Credentials to artifactory server assined in Jenkins > Configure System > credentials > "username with password" > ID: "rt-cred-id" )
+					credentialsId: 'rt-credentials', // (Credentials to artifactory server assined in Jenkins > Configure System > credentials > "username with password" > ID: "rt-cred-id" )
 
  					// bypassProxy: true, (If Jenkins is configured to use an http proxy, you can bypass the proxy when using this Artifactory server)
 					// timeout: 300 , (Configure the connection timeout (in seconds). The default value (if not configured) is 300 seconds)
