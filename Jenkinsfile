@@ -5,7 +5,7 @@ pipeline {
 
 	agent any
 
-	
+	GRADLE_HOME = "/Users/michaelsv/.sdkman/candidates/gradle/7.2"
 
 	
 	stages {
