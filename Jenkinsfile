@@ -7,7 +7,7 @@ pipeline {
 
 	
 	environment {
-		GRADLE_HOME = "/Users/michaelsv/.sdkman/candidates/gradle/7.2"
+		GRADLE_HOME = "/Users/michaelsv/.sdkman/candidates/gradle/6.8.1"
 	}
 	
 	stages {
