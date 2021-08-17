@@ -33,7 +33,7 @@ pipeline {
 				rtGradleDeployer (
 					id: "GRADLE_DEPLOYER",
 					serverId: "ci-setup-cmd",
-					repo: "gradle-virtual",
+					repo: "gradle-local"  
 
 					// threads: 6, (Optional - Attach custom properties to the published artifacts)
 					// properties: ['key1=value1', 'key2=value2'], (Optional - Attach custom properties to the published artifacts)
@@ -41,7 +41,7 @@ pipeline {
 				rtGradleResolver (
 					id: "GRADLE_RESOLVER",
 					serverId: "ci-setup-cmd",
-					repo: "gradle-local"
+					repo: "gradle-virtual"
 				)
 			}
 		}
