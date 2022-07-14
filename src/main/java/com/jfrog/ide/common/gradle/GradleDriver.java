@@ -2,7 +2,7 @@ package com.jfrog.ide.common.gradle;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang3.SystemUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.jfrog.build.api.util.Log;
 import org.jfrog.build.extractor.executor.CommandExecutor;
@@ -14,42 +14,41 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+
+import static java.lang.System.lineSeparator;
 
 /**
  * @author yahavi
  **/
 public class GradleDriver {
-    private static final Path GRADLE_DEPS = Paths.get(System.getProperty("user.home"), ".jfrog-ide-plugins", "gradle-dependencies");
     private final CommandExecutor commandExecutor;
 
     /**
-     * Create a Gradle driver. If Gradle wrapper exist, use it. Otherwise use Gradle from Path.
+     * Create a Gradle driver. If the path to Gradle executable exists, use it. Otherwise, use Gradle from system path.
      *
-     * @param workingDirectory - The project working directory
-     * @param env              - Environment variables
+     * @param gradleExe - The Gradle executable
+     * @param env       - Environment variables
      */
-    public GradleDriver(Path workingDirectory, Map<String, String> env) {
-        String wrapperExe = SystemUtils.IS_OS_WINDOWS ? "gradlew.bat" : "gradlew";
-        Path gradleWrapper = workingDirectory.resolve(wrapperExe).toAbsolutePath();
-        if (Files.exists(gradleWrapper)) {
-            this.commandExecutor = new CommandExecutor(gradleWrapper.toString(), env);
-            return;
-        }
-        this.commandExecutor = new CommandExecutor("gradle", env);
+    public GradleDriver(String gradleExe, Map<String, String> env) {
+        this.commandExecutor = new CommandExecutor(StringUtils.defaultIfBlank(gradleExe, "gradle"), env);
     }
 
-    @SuppressWarnings("unused")
-    public boolean isGradleInstalled() {
+    /**
+     * Run `gradle --version` command. If an error occurred - print it.
+     *
+     * @throws IOException if any error occurred.
+     */
+    public void verifyGradleInstalled() throws IOException {
         try {
             version(null);
-            return true;
         } catch (IOException | InterruptedException e) {
-            return false;
+            throw new IOException("Could not scan Gradle project dependencies, " +
+                    "because Gradle project was not configured properly or Gradle is not in the system path.", e);
         }
     }
 
@@ -63,13 +62,13 @@ public class GradleDriver {
      * @return list of files containing the dependency trees of the Gradle projects.
      * @throws IOException in case of any I/O error.
      */
-    public File[] generateDependenciesGraphAsJson(File workingDirectory, Log logger) throws IOException {
+    public List<File> generateDependenciesGraphAsJson(File workingDirectory, Log logger) throws IOException {
         String encodedPath = Base64.getEncoder().encodeToString(workingDirectory.getName().getBytes(StandardCharsets.UTF_8));
 
         // Create temp init script file
-        Path initScript = Files.createTempFile(null, encodedPath);
+        Path initScript = Files.createTempFile("init-script", encodedPath);
         logger.debug("dependencies.gradle init script path: " + initScript);
-        try (InputStream gradleInitScript = getClass().getResourceAsStream("/dependencies.gradle")) {
+        try (InputStream gradleInitScript = getClass().getResourceAsStream("/gradle-dep-tree.gradle")) {
             if (gradleInitScript == null) {
                 throw new IOException("Couldn't find dependencies.gradle init script.");
             }
@@ -77,12 +76,19 @@ public class GradleDriver {
             // Copy init script to the temp file
             Files.copy(gradleInitScript, initScript, StandardCopyOption.REPLACE_EXISTING);
 
-            // Run "gradle generateDependenciesGraphAsJson -I <path-to-init-script>"
-            List<String> args = Lists.newArrayList("generateDependenciesGraphAsJson", "-I", initScript.toString());
-            runCommand(workingDirectory, args, logger);
+            // Run "gradle generateDepTrees -q -I <path-to-init-script>"
+            List<String> args = Lists.newArrayList("generateDepTrees", "-q", "-I", initScript.toString());
+            CommandResults results = runCommand(workingDirectory, args, logger);
+            List<File> files = new ArrayList<>();
+            for (String line : results.getRes().split(lineSeparator())) {
+                line = StringUtils.trimToNull(line);
+                if (line == null) {
+                    continue;
+                }
+                files.add(new File(line));
+            }
 
-            // Return all files under <user-home>/.jfrog-ide-plugins/gradle-dependencies/<encodedPath>
-            return GRADLE_DEPS.resolve(encodedPath).toFile().listFiles();
+            return files;
         } catch (IOException | InterruptedException e) {
             throw new IOException("Couldn't build Gradle dependency tree in workspace '" + workingDirectory + "': " + ExceptionUtils.getRootCauseMessage(e), e);
         } finally {

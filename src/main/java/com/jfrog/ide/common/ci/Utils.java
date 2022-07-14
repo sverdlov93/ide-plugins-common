@@ -31,6 +31,7 @@ public class Utils {
     public static DependencyTree createDependenciesNode(String moduleId) {
         DependencyTree artifactsNode = new DependencyTree(DEPENDENCIES_NODE);
         GeneralInfo artifactsGeneralInfo = new GeneralInfo().componentId(moduleId).pkgType("Module dependencies");
+        artifactsNode.setMetadata(true);
         artifactsNode.setGeneralInfo(artifactsGeneralInfo);
         return artifactsNode;
     }
@@ -38,6 +39,7 @@ public class Utils {
     public static DependencyTree createArtifactsNode(String moduleId) {
         DependencyTree artifactsNode = new DependencyTree(ARTIFACTS_NODE);
         GeneralInfo artifactsGeneralInfo = new GeneralInfo().componentId(moduleId).pkgType("Module artifacts");
+        artifactsNode.setMetadata(true);
         artifactsNode.setGeneralInfo(artifactsGeneralInfo);
         return artifactsNode;
     }
@@ -51,10 +53,11 @@ public class Utils {
 
         Properties buildProperties = build.getProperties();
         return (BuildGeneralInfo) new BuildGeneralInfo()
+                .buildName(build.getName())
+                .buildNumber(build.getNumber())
                 .started(build.getStarted())
                 .status(buildProperties != null ? buildProperties.getProperty(BUILD_STATUS_PROP, "") : "")
                 .vcs(vcsList.get(0))
-                .componentId(build.getName() + ":" + build.getNumber())
                 .path(build.getUrl());
     }
 
@@ -64,13 +67,14 @@ public class Utils {
      * @param buildsPattern - The build wildcard pattern to filter in Artifactory
      * @return the AQL query.
      */
-    public static String createAqlForBuildArtifacts(String buildsPattern) throws EncoderException {
+    public static String createAqlForBuildArtifacts(String buildsPattern, String buildInfoRepo) throws EncoderException {
         String encodedBuildPattern = new URLCodec().encode(buildsPattern);
         // The following is a workaround, since Artifactory does not yet support '%' in AQL
         encodedBuildPattern = encodedBuildPattern.replaceAll("%", "?");
         return String.format("items.find({" +
-                "\"repo\":\"artifactory-build-info\"," +
-                "\"path\":{\"$match\":\"%s\"}}" +
-                ").include(\"name\",\"repo\",\"path\",\"created\").sort({\"$desc\":[\"created\"]}).limit(100)", encodedBuildPattern);
+                        "\"repo\":\"%s\"," +
+                        "\"path\":{\"$match\":\"%s\"}}" +
+                        ").include(\"name\",\"repo\",\"path\",\"created\").sort({\"$desc\":[\"created\"]}).limit(100)",
+                buildInfoRepo, encodedBuildPattern);
     }
 }

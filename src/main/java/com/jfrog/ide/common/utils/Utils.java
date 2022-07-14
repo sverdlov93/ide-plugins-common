@@ -3,6 +3,7 @@ package com.jfrog.ide.common.utils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.common.collect.Lists;
+import com.jfrog.xray.client.services.common.Cve;
 import com.jfrog.xray.client.services.summary.General;
 import com.jfrog.xray.client.services.summary.VulnerableComponents;
 import org.apache.commons.collections4.CollectionUtils;
@@ -11,13 +12,10 @@ import org.apache.commons.lang3.StringUtils;
 import org.jfrog.build.extractor.scan.*;
 
 import java.nio.file.Path;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
-import static com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL;
+import static com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY;
 import static com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES;
 
 /**
@@ -29,8 +27,16 @@ public class Utils {
     public static ObjectMapper createMapper() {
         return new ObjectMapper()
                 .configure(FAIL_ON_UNKNOWN_PROPERTIES, false)
-                .setSerializationInclusion(NON_NULL)
+                .setSerializationInclusion(NON_EMPTY)
                 .disable(SerializationFeature.FAIL_ON_EMPTY_BEANS);
+    }
+
+    public static String createComponentId(String artifactId, String version) {
+        return String.join(":", artifactId, version);
+    }
+
+    public static String createComponentId(String groupId, String artifactId, String version) {
+        return String.join(":", groupId, artifactId, version);
     }
 
     public static String createLicenseString(License license) {
@@ -42,14 +48,13 @@ public class Utils {
 
     public static GeneralInfo getGeneralInfo(General other) {
         return new GeneralInfo().componentId(other.getComponentId())
-                .name(other.getName())
                 .path(other.getPath())
                 .pkgType(other.getPkgType());
     }
 
     public static License toLicense(com.jfrog.xray.client.services.summary.License other) {
         List<String> moreInfoUrl = Lists.newArrayList(ListUtils.emptyIfNull(other.moreInfoUrl()));
-        return new License(Lists.newArrayList(other.getComponents()), other.getFullName(), other.getName(), moreInfoUrl);
+        return new License(other.getFullName(), other.getName(), moreInfoUrl);
     }
 
     public static Issue toIssue(com.jfrog.xray.client.services.summary.Issue other) {
@@ -60,7 +65,8 @@ public class Utils {
             VulnerableComponents vulnerableComponents = vulnerableComponentsList.get(0);
             fixedVersions = vulnerableComponents.getFixedVersions();
         }
-        return new Issue(other.getCreated(), other.getDescription(), other.getIssueType(), other.getProvider(), severity, other.getSummary(), fixedVersions);
+        return new Issue(other.getIssueId(), severity, other.getSummary(), fixedVersions, toCves(other.getCves()),
+                Collections.emptyList(), "");
     }
 
     public static Artifact getArtifact(com.jfrog.xray.client.services.summary.Artifact other) {
@@ -71,6 +77,18 @@ public class Utils {
         artifact.setIssues(issues);
         artifact.setLicenses(licenses);
         return artifact;
+    }
+
+    /**
+     * Convert list of {@link Cve} to list of {@link org.jfrog.build.extractor.scan.Cve}
+     *
+     * @param cves - CVE list
+     * @return first non-empty CVE ID or an empty string.
+     */
+    public static List<org.jfrog.build.extractor.scan.Cve> toCves(List<? extends Cve> cves) {
+        return ListUtils.emptyIfNull(cves).stream()
+                .map(clientCve -> new org.jfrog.build.extractor.scan.Cve(clientCve.getId(), clientCve.getCvssV2Score(), clientCve.getCvssV3Score()))
+                .collect(Collectors.toList());
     }
 
     /**

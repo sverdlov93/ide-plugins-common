@@ -39,14 +39,17 @@ public class XrayBuildDetailsDownloader extends ConsumerRunnableBase {
     private final DependencyTree root;
     private final AtomicInteger count;
     private final double total;
+    private String project;
     private Log log;
 
     public XrayBuildDetailsDownloader(DependencyTree root, BuildsScanCache buildsCache, XrayClientBuilder xrayClientBuilder,
-                                      ProgressIndicator indicator, AtomicInteger count, double total, Log log, Runnable checkCancel) {
+                                      ProgressIndicator indicator, AtomicInteger count, double total, Log log, Runnable checkCancel,
+                                      String project) {
         this.xrayClientBuilder = xrayClientBuilder;
         this.buildsCache = buildsCache;
         this.checkCancel = checkCancel;
         this.indicator = indicator;
+        this.project = project;
         this.count = count;
         this.total = total;
         this.root = root;
@@ -97,7 +100,7 @@ public class XrayBuildDetailsDownloader extends ConsumerRunnableBase {
     }
 
     private void downloadBuildDetails(ObjectMapper mapper, XrayClient xrayClient, String buildName, String buildNumber) throws IOException {
-        DetailsResponse response = xrayClient.details().build(buildName, buildNumber);
+        DetailsResponse response = xrayClient.details().build(buildName, buildNumber, project);
         if (!response.getScanCompleted() || response.getError() != null || isEmpty(response.getComponents())) {
             if (response.getError() != null) {
                 Error error = response.getError();
@@ -109,8 +112,8 @@ public class XrayBuildDetailsDownloader extends ConsumerRunnableBase {
         buildsCache.save(mapper.writeValueAsBytes(response), buildName, buildNumber, BuildsScanCache.Type.BUILD_SCAN_RESULTS);
     }
 
-    private void addResults(GeneralInfo generalInfo) {
-        BuildDependencyTree dependencyTree = new BuildDependencyTree(generalInfo.getArtifactId() + "/" + generalInfo.getVersion());
+    private void addResults(BuildGeneralInfo generalInfo) {
+        BuildDependencyTree dependencyTree = new BuildDependencyTree(generalInfo.getBuildName() + "/" + generalInfo.getBuildNumber());
         dependencyTree.setGeneralInfo(generalInfo);
         synchronized (root) {
             root.add(dependencyTree);

@@ -10,30 +10,40 @@ import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * @author yahavi
  */
 @SuppressWarnings("unused")
 public class PackageFileFinder implements FileVisitor<Path> {
-    private final List<String> packageJsonDirectories = Lists.newArrayList();
+    private static final String EXCLUDED_DIRS_MESSAGE = "The following directories are excluded from Xray scanning due to the defined Excluded Paths pattern:";
+    private final Set<String> packageJsonDirectories = Sets.newHashSet();
     private final List<String> buildGradleDirectories = Lists.newArrayList();
     private final List<String> goModDirectories = Lists.newArrayList();
+    private final Set<String> yarnLockDirectories = Sets.newHashSet();
+    private final Set<Path> excludedDirectories = Sets.newHashSet();
     private final PathMatcher exclusions;
-    private final Log logger;
+    private final Path basePath;
 
     /**
      * @param projectPaths  - List of project base paths
+     * @param basePath      - The project base path to make sure it is not excluded from scanning
      * @param excludedPaths - Pattern of project paths to exclude from Xray scanning for npm and Go projects
      * @param logger        - The logger to log excluded paths when found
      */
-    public PackageFileFinder(Set<Path> projectPaths, String excludedPaths, Log logger) throws IOException {
-        Set<Path> consolidatedPaths = Utils.consolidatePaths(projectPaths);
+    public PackageFileFinder(Set<Path> projectPaths, Path basePath, String excludedPaths, Log logger) throws IOException {
         this.exclusions = FileSystems.getDefault().getPathMatcher("glob:" + excludedPaths);
-        this.logger = logger;
+        this.basePath = basePath;
 
-        for (Path projectPath : consolidatedPaths) {
+        for (Path projectPath : Utils.consolidatePaths(projectPaths)) {
             Files.walkFileTree(projectPath, this);
+        }
+        if (!excludedDirectories.isEmpty()) {
+            String message = Utils.consolidatePaths(excludedDirectories).stream()
+                    .map(Path::toString)
+                    .collect(Collectors.joining(System.lineSeparator()));
+            logger.info(EXCLUDED_DIRS_MESSAGE + System.lineSeparator() + message);
         }
     }
 
@@ -43,7 +53,19 @@ public class PackageFileFinder implements FileVisitor<Path> {
      * @return List of package.json's parent directories.
      */
     public Set<String> getNpmPackagesFilePairs() {
-        return Sets.newHashSet(packageJsonDirectories);
+        Set<String> packageJsonDirectoriesSet = Sets.newHashSet(packageJsonDirectories);
+        // A yarn project might contain package.json file and shouldn't be identified as npm project.
+        packageJsonDirectoriesSet.removeAll(yarnLockDirectories);
+        return packageJsonDirectoriesSet;
+    }
+
+    /**
+     * Get package.json directories and their directories.
+     *
+     * @return List of yarn.lock's parent directories.
+     */
+    public Set<String> getYarnPackagesFilePairs() {
+        return Sets.newHashSet(yarnLockDirectories);
     }
 
     /**
@@ -65,6 +87,15 @@ public class PackageFileFinder implements FileVisitor<Path> {
     }
 
     /**
+     * Get the excluded directories after scan.
+     *
+     * @return the excluded directories.
+     */
+    Set<Path> getExcludedDirectories() {
+        return excludedDirectories;
+    }
+
+    /**
      * Skip excluded directories like node_modules.
      *
      * @param dir   - Current directory.
@@ -73,8 +104,10 @@ public class PackageFileFinder implements FileVisitor<Path> {
      */
     @Override
     public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-        if (exclusions.matches(dir)) {
-            logger.info("Excluding directory '" + dir + "' from Xray scanning due to the defined Excluded Paths pattern.");
+        // Exclude the directory from scanning if it matches the exclusions pattern, and it is not the root project base path.
+        if (exclusions.matches(dir) && !basePath.equals(dir)) {
+            // Adding path for logging.
+            excludedDirectories.add(dir);
             return FileVisitResult.SKIP_SUBTREE;
         }
         return FileVisitResult.CONTINUE;
@@ -89,7 +122,9 @@ public class PackageFileFinder implements FileVisitor<Path> {
      */
     @Override
     public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-        if (isNpmPackageFile(file)) {
+        if (isYarnPackageFile(file)) {
+            yarnLockDirectories.add(file.getParent().toString());
+        } else if (isNpmPackageFile(file)) {
             packageJsonDirectories.add(file.getParent().toString());
         } else if (isGradlePackageFile(file)) {
             buildGradleDirectories.add(file.getParent().toString());
@@ -123,6 +158,15 @@ public class PackageFileFinder implements FileVisitor<Path> {
      */
     private static boolean isNpmPackageFile(Path file) {
         return "package.json".equals(file.getFileName().toString());
+    }
+
+    /**
+     * Return true iff this file is yarn.lock.
+     *
+     * @return true iff this file is yarn.lock.
+     */
+    private static boolean isYarnPackageFile(Path file) {
+        return "yarn.lock".equals(file.getFileName().toString());
     }
 
     /**

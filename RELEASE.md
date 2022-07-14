@@ -1,5 +1,60 @@
 # Release Notes
 
+## 1.13.0
+- Add support for yarn v1
+- Improve Gradle dependencies tree building by using gradle-deps-tree library 
+- Bugfix - handle build number with colon
+- Bugfix - ConcurrentModificationException in cache
+
+## 1.12.0
+- Use gomod-absolutizer submodule
+- Allow scanning npm projects without node_modules
+- Root project should not be excluded from scanning
+- Allow missing modules in Go
+- Bugfix - Running AQL with wrong credentials logs non-informative message
+- Bugfix - Stackoverflow in CI tree when there is a loop
+
+## 1.11.0
+- Improve progress indicator
+- Support Xray watches
+- Add CVE exporter
+- Add ignore URL and vulnerabilities references to scan cache
+- Bug fix - dependencies and artifacts without a license in the CI view are hidden
+
+## 1.10.0
+- Allow building Go dependency tree with errors
+- Populate missing fields of violations and vulnerabilities
+
+## 1.9.0
+- Add access token support
+- Add new JFrog CLI driver
+- Improve excluded paths log messages
+
+## 1.8.0
+- Improve performance and memory consumption
+- Support Go 1.15
+- Show vulnerabilities and violations without summary
+- CI - Support long build names and numbers
+- CI - Support JFrog projects
+- CI - bugfix - loadBuild failed on build names with ':'
+
+## 1.7.2
+- GraphScan - Make sure the licenses set is never empty
+- GraphScan - Send to Xray a flat tree with dependencies only
+- Allow providing the Go executable path
+- Remove ScanLogic from the ScanManagerBase constructor
+
+## 1.7.1
+
+- Bugfix: go.mod and *.go files of sub Go projects should be ignored during a scanning of a project
+
+## 1.7.0
+
+- Improve Go scan algorithm
+- Add support for the new Xray graph scan API
+- Provide Gradle executable to Gradle Driver
+- Update to Java 11
+
 ## 1.6.1
 
 - Bugfix: npm without name or version throws NPE

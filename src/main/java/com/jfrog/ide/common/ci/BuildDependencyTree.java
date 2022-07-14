@@ -7,6 +7,7 @@ import com.google.common.collect.Sets;
 import com.jfrog.xray.client.services.details.DetailsResponse;
 import com.jfrog.xray.client.services.summary.General;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.ListUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.jfrog.build.api.Artifact;
 import org.jfrog.build.api.Build;
@@ -16,10 +17,7 @@ import org.jfrog.build.api.util.Log;
 import org.jfrog.build.extractor.scan.*;
 
 import java.text.ParseException;
-import java.util.Collection;
-import java.util.Enumeration;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import static com.jfrog.ide.common.ci.Utils.*;
@@ -38,6 +36,7 @@ public class BuildDependencyTree extends DependencyTree {
 
     public BuildDependencyTree(Object userObject) {
         super(userObject);
+        setMetadata(true);
     }
 
     /**
@@ -51,16 +50,17 @@ public class BuildDependencyTree extends DependencyTree {
         setScopes(Sets.newHashSet(new Scope()));
         setGeneralInfo(createBuildGeneralInfo(build, logger));
         if (CollectionUtils.isNotEmpty(build.getModules())) {
-            populateModulesDependencyTree(this, build);
+            populateModulesDependencyTree(this, build, logger);
         }
     }
 
-    private void populateModulesDependencyTree(DependencyTree buildDependencyTree, Build build) {
+    private void populateModulesDependencyTree(DependencyTree buildDependencyTree, Build build, Log logger) {
         for (Module module : build.getModules()) {
             GeneralInfo moduleGeneralInfo = new GeneralInfo()
                     .componentId(module.getId())
                     .pkgType(module.getType());
             DependencyTree moduleNode = new DependencyTree(module.getId());
+            moduleNode.setMetadata(true);
             moduleNode.setGeneralInfo(moduleGeneralInfo);
 
             // Populate artifacts
@@ -74,7 +74,7 @@ public class BuildDependencyTree extends DependencyTree {
             DependencyTree dependenciesNode = createDependenciesNode(module.getId());
             moduleNode.add(dependenciesNode);
             if (CollectionUtils.isNotEmpty(module.getDependencies())) {
-                populateDependencies(dependenciesNode, module);
+                populateDependencies(dependenciesNode, module, logger);
             }
 
             buildDependencyTree.add(moduleNode);
@@ -95,46 +95,50 @@ public class BuildDependencyTree extends DependencyTree {
         }
     }
 
-    private void populateDependencies(DependencyTree dependenciesNode, Module module) {
-        Set<Dependency> directDependencies = Sets.newHashSet();
+    private void populateDependencies(DependencyTree dependenciesNode, Module module, Log logger) {
         Multimap<String, Dependency> parentToChildren = HashMultimap.create();
         for (Dependency dependency : module.getDependencies()) {
             String[][] requestedBy = dependency.getRequestedBy();
+            // If there is no "requestedBy" field or the module is the parent of the dependency,
+            // the direct parent is the dependencies node.
             if (isEmpty(requestedBy) || isEmpty(requestedBy[0])) {
-                directDependencies.add(dependency);
+                parentToChildren.put(dependenciesNode.toString(), dependency);
                 continue;
             }
 
             for (String[] parent : requestedBy) {
-                String directParent = parent[0];
-                if (StringUtils.isBlank(requestedBy[0][0]) || StringUtils.equals(requestedBy[0][0], module.getId())) {
-                    directDependencies.add(dependency);
+                String directParent;
+                // If there is an empty "requestedBy" field or the module is the parent of the dependency -
+                // the direct parent is the dependencies node.
+                // Otherwise - the direct parent is the first dependency in the requestedBy.
+                if (isBlank(requestedBy[0][0]) || StringUtils.equals(requestedBy[0][0], module.getId())) {
+                    directParent = dependenciesNode.toString();
                 } else {
-                    parentToChildren.put(directParent, dependency);
+                    directParent = parent[0];
                 }
+                parentToChildren.put(directParent, dependency);
             }
         }
-
-        for (Dependency directDependency : directDependencies) {
-            dependenciesNode.add(populateTransitiveDependencies(directDependency, parentToChildren));
-        }
+        populateTransitiveDependencies(dependenciesNode, parentToChildren, logger);
     }
 
-    private DependencyTree populateTransitiveDependencies(Dependency dependency, Multimap<String, Dependency> parentToChildren) {
-        GeneralInfo dependencyGeneralInfo = new GeneralInfo()
-                .componentId(dependency.getId())
-                .pkgType(dependency.getType())
-                .sha1(dependency.getSha1());
-        DependencyTree dependencyTree = new DependencyTree(dependency.getId());
-        dependencyTree.setGeneralInfo(dependencyGeneralInfo);
-        Collection<String> scopes = CollectionUtils.emptyIfNull(dependency.getScopes());
-        dependencyTree.setScopes(scopes.stream().map(Scope::new).collect(Collectors.toSet()));
-        dependencyTree.setLicenses(Sets.newHashSet(new License()));
-
-        for (Dependency child : parentToChildren.get(dependency.getId())) {
-            dependencyTree.add(populateTransitiveDependencies(child, parentToChildren));
+    private void populateTransitiveDependencies(DependencyTree node, Multimap<String, Dependency> parentToChildren, Log logger) {
+        for (Dependency childDependency : parentToChildren.get(node.toString())) {
+            GeneralInfo generalInfo = new GeneralInfo()
+                    .componentId(childDependency.getId())
+                    .pkgType(childDependency.getType())
+                    .sha1(childDependency.getSha1());
+            DependencyTree child = new DependencyTree(childDependency.getId());
+            child.setGeneralInfo(generalInfo);
+            Collection<String> scopes = CollectionUtils.emptyIfNull(childDependency.getScopes());
+            child.setScopes(scopes.stream().map(Scope::new).collect(Collectors.toSet()));
+            child.setLicenses(Sets.newHashSet(new License()));
+            node.add(child);
+            if (node.hasLoop(logger)) {
+                return;
+            }
+            populateTransitiveDependencies(child, parentToChildren, logger);
         }
-        return dependencyTree;
     }
 
     /**
@@ -157,7 +161,7 @@ public class BuildDependencyTree extends DependencyTree {
         Map<String, com.jfrog.xray.client.services.summary.Artifact> sha1ToComponent = Maps.newHashMap();
 
         // Populate the above mappings. We will use the information to populate the dependency tree efficiently.
-        for (com.jfrog.xray.client.services.summary.Artifact component : response.getComponents()) {
+        for (com.jfrog.xray.client.services.summary.Artifact component : ListUtils.emptyIfNull(response.getComponents())) {
             General general = component.getGeneral();
             sha1ToComponent.put(general.getSha1(), component);
             sha1ToSha256.put(general.getSha1(), general.getSha256());
@@ -221,7 +225,7 @@ public class BuildDependencyTree extends DependencyTree {
                 buildArtifact.setIssues(artifact.getIssues().stream()
                         .map(com.jfrog.ide.common.utils.Utils::toIssue).collect(Collectors.toSet()));
             }
-            if (artifact.getLicenses() != null) {
+            if (CollectionUtils.isNotEmpty(artifact.getLicenses())) {
                 buildArtifact.setLicenses(artifact.getLicenses().stream()
                         .map(com.jfrog.ide.common.utils.Utils::toLicense).collect(Collectors.toSet()));
             }
@@ -244,7 +248,8 @@ public class BuildDependencyTree extends DependencyTree {
         Enumeration<?> bfs = depthFirstEnumeration();
         while (bfs.hasMoreElements()) {
             DependencyTree node = (DependencyTree) bfs.nextElement();
-            node.setIssues(Sets.newHashSet(new org.jfrog.build.extractor.scan.Issue("", "", "", "", Severity.Unknown, "", null)));
+            node.setIssues(Sets.newHashSet(new org.jfrog.build.extractor.scan.Issue("", Severity.Unknown, "",
+                    Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), "")));
         }
     }
 

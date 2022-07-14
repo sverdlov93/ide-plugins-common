@@ -1,4 +1,4 @@
-module github.com/jfrog/treeTest2
+module project2
 
 require github.com/jfrog/gocmd v0.1.12
 
